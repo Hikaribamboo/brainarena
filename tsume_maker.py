@@ -67,13 +67,6 @@ def wait_for_mate(out_queue, engine, timeout_ms):
         print("🔹", line)
         lines.append(line)
 
-        # "bestmove" が出たら通常探索終了
-        if "bestmove" in line:
-            break
-        # "checkmate" や "nomate" が出たら詰み探索終了
-        if "nomate" in line or "checkmate" in line:
-            break
-
     return lines
 
 def parse_mate_info(lines):
@@ -251,9 +244,6 @@ def main():
     engine.wait()
     print("✅ エンジン終了")
     
-    with open("tsumeshogi.json", "r", encoding="utf-8") as f:
-        print(f.read())
-
     # 最後に見つかった「詰みあり & 余詰めなし」の局面を JSON に保存
     
     if final_record:
