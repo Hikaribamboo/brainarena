@@ -10,7 +10,7 @@ ENGINE_PATH = "C:\\Users\\hikar\\yaneuraou\\YaneuraOu_NNUE-tournament-clang++-av
 CONVERTED_FILE = "translated_kifs/output.sfen"
 OUTPUT_JSON = "tsumeshogi.json"
 
-MATE_TIME_MS = 5000
+MATE_TIME_MS = 3000
 MULTI_PV = 2
 
 def send_command(engine, cmd):
@@ -156,12 +156,10 @@ def main():
 
     # --- エンジン初期化 ---
     send_command(engine, "usi")
-    wait_for_mate(out_queue, engine, 5000)
     send_command(engine, f"setoption name MultiPV value {MULTI_PV}")
     send_command(engine, "setoption name USI_Hash value 256")
     send_command(engine, "setoption name USI_OwnBook value false")
     send_command(engine, "isready")
-    wait_for_mate(out_queue, engine, 5000)
     print("✅ エンジン初期化完了")
 
     # 見つかった詰み局面のうち「余詰めなし」を最後に記録しておきたい
@@ -178,7 +176,7 @@ def main():
         send_command(engine, position_cmd)
 
         # まずは shallow な評価値を取得 (go depth 1 など)
-        send_command(engine, "go depth 1")
+        send_command(engine, "go depth 10")
         eval_lines = wait_for_mate(out_queue, engine, 2000)
         eval_score = get_evaluation_score(eval_lines)
 
