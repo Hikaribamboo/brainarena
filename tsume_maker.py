@@ -7,7 +7,8 @@ import threading
 
 # === ユーザー設定 ===
 ENGINE_PATH = "C:\\Users\\hikar\\yaneuraou\\YaneuraOu_NNUE-tournament-clang++-avx2.exe"
-CONVERTED_FILE = "sfen_maker_1/output_sfens/output.sfen"
+CONVERTED_FILE = "C:\\Users\\hikar\\program_develop\\aoto-tsumeshogi-question\\aoto-tsumeshogi-question\\sfen_maker_1\\output_sfens\\output.sfen"
+
 
 MATE_TIME_MS = 3000
 MULTI_PV = 2
@@ -69,12 +70,9 @@ def wait_for_mate(out_queue, engine, timeout_ms):
     return lines
 
 def parse_mate_info(lines):
-    """
-    go mate コマンドで最善手(multipv=1)と次善手(multipv=2)の
-    "score mate x" と詰み手順を取得し、(mate1, mate2, mate_steps) タプルで返す。
-    """
+    """詰み情報を解析し、詰み手数と手順を取得"""
     mate_dict = {}
-    mate_steps = ""  # 初期化（詰み手順）
+    mate_steps = ""
 
     for line in lines:
         if "info" in line and "multipv" in line and "score mate" in line:
@@ -87,54 +85,18 @@ def parse_mate_info(lines):
                     mate_val = int(parts[score_idx + 2])
                     mate_dict[mpv_val] = mate_val
 
-                    # `multipv=1` の場合に詰み手順を取得
                     if mpv_val == 1 and "pv" in parts:
                         pv_idx = parts.index("pv") + 1
-                        mate_steps = " ".join(parts[pv_idx:])  # `pv` 以降の手順を取得
+                        mate_steps = " ".join(parts[pv_idx:])
             except ValueError:
                 pass
 
     return mate_dict.get(1), mate_dict.get(2), mate_steps
 
-
-def get_turn(moves):
-    """手番を判定 (先手: 'black', 後手: 'white')"""
-    return "black" if len(moves) % 2 == 0 else "white"
-
-
-def get_evaluation_score(lines):
-    """
-    エンジン出力から評価値(数値)を取得。
-    "score cp XXX" → XXX が評価値
-    "score mate XXX" → 詰みなので便宜上 ±100000 * XXX など大きい値にする
-    """
-    for line in lines:
-        if "score cp" in line:
-            parts = line.split()
-            return int(parts[parts.index("score") + 2])
-        elif "score mate -0" in line:
-            return int(0)
-        elif "score mate" in line:
-            parts = line.split()
-            # mate X → +なら先手勝ち、-なら後手勝ちだが
-            # ここでは便宜上 ±巨大値にしておく
-            mate_num = int(parts[parts.index("score") + 2])
-            # 符号は出力上ないので、mate_num が正なら先手勝ち扱いに
-            # ざっくり eval=+100000 * X としておく
-            return mate_num * 100000
-    return None
-
 def main():
     if not os.path.exists(CONVERTED_FILE):
-        print(f"❌ {CONVERTED_FILE} not found.")
-        return
-
-    with open(CONVERTED_FILE, "r", encoding="utf-8") as f:
-        line = f.readline().strip()
-        if not line.startswith("position startpos moves"):
-            print("❌ USI形式の棋譜ではありません。:", line)
-            return
-        moves = line.split()[3:]  # 先頭の "position startpos moves" を除いた手順リスト
+        print(f"⚠️ {CONVERTED_FILE} が見つかりません。スクリプトを終了します。")
+        return  # スクリプトを停止
 
     engine_dir = os.path.dirname(ENGINE_PATH)
     if engine_dir:
@@ -161,118 +123,80 @@ def main():
     send_command(engine, "isready")
     print("✅ エンジン初期化完了")
 
-    # 見つかった詰み局面のうち「余詰めなし」を最後に記録しておきたい
-    final_record = None
+    # === SFENリストを一行ずつ処理 ===
+    with open(CONVERTED_FILE, "r", encoding="utf-8") as f:
+        sfen_list = f.readlines()
 
-    # === 後ろから局面をチェックするイメージで、
-    #     moves を消しながら(ポップしながら)ループ ===
-    while moves:
-        turn = get_turn(moves)  # 次の手番（black=先手, white=後手）
-        print(f"\n🔍 現在の手番: {'▲先手' if turn == 'black' else '△後手'}")
+    if not sfen_list:
+        print("⚠️ SFENが空です。処理を終了します。")
+        return
 
-        # いまの局面を設定
-        position_cmd = "position startpos moves " + " ".join(moves)
-        send_command(engine, position_cmd)
-
-        # まずは shallow な評価値を取得 (go depth 1 など)
-        send_command(engine, "go depth 10")
-        eval_lines = wait_for_mate(out_queue, engine, 2000)
-        eval_score = get_evaluation_score(eval_lines)
-
-        if eval_score is None:
-            print("⚠️ 評価値が取得できませんでした。探索停止。")
-            break
-
-        elif eval_score == 0:
-            print("⏩ 詰みの局面なので1手戻します")
-            moves.pop()  # 先手の手
-            continue
-
-        elif eval_score < -2000:
-            print("⏩ 不利のため1手戻します")
-            moves.pop()
-            continue
-
-        elif eval_score >= 2000:
-            print("🔔詰みチェックを行います")
-            print("🔎 詰み探索(go mate)")
-
-            send_command(engine, f"go mate {MATE_TIME_MS}")  # 時間指定
-            lines_captured = wait_for_mate(out_queue, engine, MATE_TIME_MS + 1000)
-
-            sfen_str = position_cmd
-            mate1, mate2, steps_str = parse_mate_info(lines_captured)
-            print(f"   最善手の詰み手数: {mate1}, 次善手の詰み手数: {mate2}")
-
-            # mate1がNone なら詰みなし => ここで詰将棋にできないので終了
-            if mate1 is None:
-                print("🔔 この局面では詰みなし → これ以上詰将棋は作れないので終了")
-                break
-
-            # 余詰め判定: mate1 == mate2 (同手数の別解) があれば即終了
-            if mate2 is not None and mate1 == mate2:
-                print("⚠️ 余詰め発生（最善手と次善手の手数が同じ）→ 詰将棋として不採用・終了")
-                final_record = None  # 余詰めが出た時点で破棄
-                break
-
-            else:
-                print("⏩ 詰みが見つかり余詰めがないので2手戻します")
-                print("⏩⏩⏩",eval_lines[0])
-                
-                # 記録更新: この局面を「最後に見つかった詰み問題」として記憶
-                final_record = {
-                    "board": sfen_str,       # SFEN形式
-                    "steps": steps_str,      # 答えの指し手
-                    "mate_length": mate1,    # 最短詰手数
-                }
-                
-                moves.pop()  # 先手の手
-                moves.pop()  # 後手の手
-                continue
-
-        else:
-            print("✅ 最後の詰み以降の詰みが確認できなかったので問題を保存して終了します")
-            break
-
-
-    # エンジン終了処理
-    send_command(engine, "quit")
-    reader.stop()
-    engine.wait()
-    print("✅ エンジン終了")
-    
-    # 現在のスクリプトのディレクトリを取得
+    # JSONファイルのパス
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-    # 出力 JSON のパス
     OUTPUT_JSON = os.path.join(SCRIPT_DIR, "tsumeshogi.json")
 
     # 既存のJSONファイルを読み込む（なければ空リスト）
     if os.path.exists(OUTPUT_JSON):
         with open(OUTPUT_JSON, "r", encoding="utf-8") as f:
             try:
-                existing_data = json.load(f)  # 既存データを読み込む
-                if not isinstance(existing_data, list):  # 既存データがリストでない場合、リスト化
+                existing_data = json.load(f)
+                if not isinstance(existing_data, list):
                     existing_data = [existing_data]
-            except json.JSONDecodeError:  # JSONが壊れていた場合、新規作成
+            except json.JSONDecodeError:
                 existing_data = []
     else:
         existing_data = []
 
-    # 新しいデータを追加
-    if final_record:
-        existing_data.append(final_record)  # 既存データに追加
-        
-        print(f"📜 保存するJSONデータ: {json.dumps(final_record, indent=2, ensure_ascii=False)}")
-        
-        try:
-            with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
-                json.dump(existing_data, f, indent=2, ensure_ascii=False)
-            print(f"✨ JSON保存完了: {OUTPUT_JSON}")
-        except Exception as e:
-            print(f"❌ JSON保存エラー: {e}")
-    else:
-        print("⚠️ 最終的に詰将棋を作れる局面が見つかりませんでした。JSON保存なし。")
+    for sfen in sfen_list:
+        sfen = sfen.strip()
+        if not sfen.startswith("position startpos moves"):
+            print(f"⚠️ 無効なSFEN: {sfen}")
+            continue
+
+        print(f"\n🔍 処理中の局面: {sfen}")
+
+        # エンジンに局面をセット
+        send_command(engine, sfen)
+
+        # 詰みチェック
+        send_command(engine, f"go mate {MATE_TIME_MS}")
+        lines_captured = wait_for_mate(out_queue, engine, MATE_TIME_MS + 1000)
+
+        mate1, mate2, steps_str = parse_mate_info(lines_captured)
+        print(f"   最善手の詰み手数: {mate1}, 次善手の詰み手数: {mate2}")
+
+        if mate1 is None:
+            print("🔔 この局面では詰みなし → スキップ")
+            continue
+
+        if mate2 is not None and mate1 == mate2:
+            print("⚠️ 余詰め発生 → スキップ")
+            continue
+
+        # 記録更新
+        final_record = {
+            "board": sfen,
+            "steps": steps_str,
+            "mate_length": mate1,
+        }
+        existing_data.append(final_record)
+
+        print(f"📜 保存データ: {json.dumps(final_record, indent=2, ensure_ascii=False)}")
+
+    # JSONファイルに保存
+    try:
+        with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
+            json.dump(existing_data, f, indent=2, ensure_ascii=False)
+        print(f"✨ JSON保存完了: {OUTPUT_JSON}")
+    except Exception as e:
+        print(f"❌ JSON保存エラー: {e}")
+
+    # エンジン終了処理
+    send_command(engine, "quit")
+    reader.stop()
+    engine.wait()
+    print("✅ エンジン終了")
 
 if __name__ == "__main__":
     main()
+
