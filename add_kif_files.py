@@ -1,7 +1,5 @@
 import os 
 import time
-import subprocess
-import json  # JSON対応
 
 # フォルダパス
 KIFS_FOLDER = "kifs"
@@ -10,7 +8,7 @@ SFEN_OUTPUT = os.path.join(TRANSLATED_FOLDER, "output.sfen")
 
 # 1. 棋譜をコマンドプロンプトから入力し、ファイルに保存
 def save_kif():
-    print("📥 棋譜をペーストしてください（終了: Ctrl+C）:")
+    print("\n📥 棋譜をペーストしてください（終了: Enter 2回 / スクリプト停止: Ctrl+C）:")
     kif_text = []
     
     while True:
@@ -19,12 +17,13 @@ def save_kif():
             if line.strip():  # 空行を無視
                 kif_text.append(line)
             else:
-                break
+                break  # 連続で Enter が押されたら終了
         except KeyboardInterrupt:
-            break
+            print("\n🛑 ユーザーが中断しました。終了します。")
+            return None
     
     if not kif_text:
-        print("⚠️ 棋譜が入力されませんでした。処理を中断します。")
+        print("⚠️ 棋譜が入力されませんでした。再入力してください。")
         return None
     
     # 棋譜を新しいファイルとして保存
@@ -42,6 +41,11 @@ def main():
     os.makedirs(KIFS_FOLDER, exist_ok=True)
     os.makedirs(TRANSLATED_FOLDER, exist_ok=True)
 
-    save_kif()
+    try:
+        while True:
+            save_kif()  # 棋譜を連続で入力
+    except KeyboardInterrupt:
+        print("\n🛑 ユーザーが Ctrl+C を押したため、終了します。")
+
 if __name__ == "__main__":
     main()
