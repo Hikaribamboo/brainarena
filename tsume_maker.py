@@ -7,8 +7,7 @@ import threading
 
 # === ユーザー設定 ===
 ENGINE_PATH = "C:\\Users\\hikar\\yaneuraou\\YaneuraOu_NNUE-tournament-clang++-avx2.exe"
-CONVERTED_FILE = "translated_kifs/output.sfen"
-OUTPUT_JSON = "tsumeshogi.json"
+CONVERTED_FILE = "sfen_maker_1/output_sfens/output.sfen"
 
 MATE_TIME_MS = 3000
 MULTI_PV = 2
@@ -242,15 +241,38 @@ def main():
     engine.wait()
     print("✅ エンジン終了")
     
-    # 最後に見つかった「詰みあり & 余詰めなし」の局面を JSON に保存
-    
+    # 現在のスクリプトのディレクトリを取得
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+    # 出力 JSON のパス
+    OUTPUT_JSON = os.path.join(SCRIPT_DIR, "tsumeshogi.json")
+
+    # 既存のJSONファイルを読み込む（なければ空リスト）
+    if os.path.exists(OUTPUT_JSON):
+        with open(OUTPUT_JSON, "r", encoding="utf-8") as f:
+            try:
+                existing_data = json.load(f)  # 既存データを読み込む
+                if not isinstance(existing_data, list):  # 既存データがリストでない場合、リスト化
+                    existing_data = [existing_data]
+            except json.JSONDecodeError:  # JSONが壊れていた場合、新規作成
+                existing_data = []
+    else:
+        existing_data = []
+
+    # 新しいデータを追加
     if final_record:
-        print(final_record)
-        with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
-            json.dump(final_record, f, indent=2, ensure_ascii=False)
-        print(f"✨ JSON保存完了: {OUTPUT_JSON}")
+        existing_data.append(final_record)  # 既存データに追加
+        
+        print(f"📜 保存するJSONデータ: {json.dumps(final_record, indent=2, ensure_ascii=False)}")
+        
+        try:
+            with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
+                json.dump(existing_data, f, indent=2, ensure_ascii=False)
+            print(f"✨ JSON保存完了: {OUTPUT_JSON}")
+        except Exception as e:
+            print(f"❌ JSON保存エラー: {e}")
     else:
         print("⚠️ 最終的に詰将棋を作れる局面が見つかりませんでした。JSON保存なし。")
-        
+
 if __name__ == "__main__":
     main()
